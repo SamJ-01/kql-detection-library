@@ -73,8 +73,9 @@ DeviceProcessEvents
 **False positives:** rare; some imaging/decommissioning scripts. Exclude known
 maintenance accounts rather than raising the threshold — this behaviour warrants
 per-event review.
-**Validated:** during Operation Silent Corridor, this pattern identified the
-attacker's cleanup phase on the domain controller.
+**Validation:** the same behaviour (`wevtutil cl Security` on the domain controller)
+was found in the Silent Corridor challenge with a query against that lab's custom
+log table. This Defender-table version has not yet been run against live telemetry.
 
 ## Using the queries
 
@@ -87,8 +88,8 @@ attacker's cleanup phase on the domain controller.
 
 ## Related work
 
-- [Operation Silent Corridor](https://github.com/SamJ-01/threat-hunt-silent-corridor) — the
-  threat hunt several of these detections came out of.
+- [Operation Silent Corridor](https://github.com/SamJ-01/threat-hunt-silent-corridor) — a
+  LOG(N) Pacific threat-hunt challenge whose attack chain several of these detections cover.
 - [MDE Detection & Automated Response](https://github.com/SamJ-01/mde-detection-automation) —
   custom detections with automatic device isolation.
 

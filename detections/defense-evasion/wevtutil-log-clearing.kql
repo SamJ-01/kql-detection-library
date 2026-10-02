@@ -17,8 +17,10 @@
 //                   hour before the clear (off-host telemetry such as Sysmon
 //                   forwarded to Log Analytics survives the clear), identify the
 //                   account used, and consider isolating the device.
-// Validation      : Identified the attacker's cleanup phase on the domain
-//                   controller during Operation Silent Corridor (lab).
+// Validation      : The same behaviour (wevtutil cl Security on the domain
+//                   controller) was found in the LOG(N) Pacific Silent Corridor
+//                   challenge using a query against that lab's custom table. This
+//                   DeviceProcessEvents version is not yet validated.
 // =============================================================================
 let lookback = 7d;
 DeviceProcessEvents
