@@ -5,7 +5,10 @@ MITRE ATT&CK tactic. Every query is documented to a production standard: detecti
 logic, data source, false-positive profile, and tuning guidance — because a query
 without an FP analysis is a hypothesis, not a detection.
 
-## Structure
+## Planned structure
+
+Detections are added here as they are documented; the first one is shown
+below. Target layout:
 
 detections/
 ├── credential-access/
