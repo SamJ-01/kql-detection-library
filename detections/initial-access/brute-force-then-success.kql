@@ -1,0 +1,38 @@
+// =============================================================================
+// Detection    : Many failed logons followed by a success from the same source
+// Hypothesis   : An attacker guesses passwords against an exposed host (e.g. RDP
+//                open to the internet) and eventually gets in.
+// ATT&CK       : T1110 Brute Force (Credential Access), leading to
+//                T1078 Valid Accounts (Initial Access)
+// Data source  : DeviceLogonEvents
+// Severity     : High when the success follows the failures
+// Scope        : Lab detection written against synthetic telemetry. The threshold
+//                is a starting point, not a tuned value.
+// -----------------------------------------------------------------------------
+// False positives : A user mistyping a password several times then succeeding,
+//                   or a service with stale saved credentials. Raising the
+//                   threshold or requiring a public RemoteIP reduces noise.
+// Response        : Check where RemoteIP is (internal or internet), what the account
+//                   did after logging in, reset its password, and close or restrict
+//                   the exposed service (NSG / firewall rule, VPN only).
+// Validation      : Not yet validated against live telemetry.
+// =============================================================================
+let lookback = 1d;
+let threshold = 10;
+let Failures = DeviceLogonEvents
+    | where Timestamp > ago(lookback)
+    | where ActionType == "LogonFailed" and isnotempty(RemoteIP)
+    | summarize FailedCount = count(), FirstFail = min(Timestamp), LastFail = max(Timestamp)
+                by DeviceName, AccountName, RemoteIP
+    | where FailedCount >= threshold;
+let Successes = DeviceLogonEvents
+    | where Timestamp > ago(lookback)
+    | where ActionType == "LogonSuccess" and isnotempty(RemoteIP)
+    | project SuccessTime = Timestamp, DeviceName, AccountName, RemoteIP, LogonType, RemoteIPType;
+Failures
+| join kind=inner Successes on DeviceName, AccountName, RemoteIP
+| where SuccessTime > LastFail
+| summarize arg_min(SuccessTime, *) by DeviceName, AccountName, RemoteIP
+| project SuccessTime, DeviceName, AccountName, RemoteIP, RemoteIPType, LogonType,
+          FailedCount, FirstFail, LastFail
+| order by SuccessTime desc

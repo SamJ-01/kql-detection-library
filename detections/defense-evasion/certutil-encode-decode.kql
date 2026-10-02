@@ -1,0 +1,32 @@
+// =============================================================================
+// Detection    : certutil used to encode or decode files
+// Hypothesis   : An attacker abuses the built-in certutil.exe to Base64-encode
+//                data before exfiltrating it, or to decode a payload they have
+//                brought onto the host.
+// ATT&CK       : T1027 Obfuscated Files or Information (-encode)
+//                T1140 Deobfuscate/Decode Files or Information (-decode)
+//                Tactic: Defense Evasion (often a step before T1041 exfiltration)
+// Data source  : DeviceProcessEvents
+// Severity     : Medium (raise to High if the output file is then sent out, see
+//                ../exfiltration/post-to-new-domain.kql)
+// Scope        : Lab detection written against synthetic telemetry.
+// -----------------------------------------------------------------------------
+// False positives : Administrators and some software installers use certutil
+//                   for certificate work (e.g. -dump, -verify, -addstore); those
+//                   switches are not matched here. Legitimate -encode/-decode use
+//                   is uncommon on workstations.
+// Response        : Check the input and output paths in the command line, look for
+//                   a network connection from the same device shortly after, and
+//                   retrieve the output file if it still exists.
+// Validation      : Not yet validated against live telemetry.
+// =============================================================================
+let lookback = 7d;
+DeviceProcessEvents
+| where Timestamp > ago(lookback)
+// Match on the original file name too, in case certutil was copied and renamed
+| where FileName =~ "certutil.exe" or ProcessVersionInfoOriginalFileName =~ "CertUtil.exe"
+| where ProcessCommandLine has_any ("-encode", "/encode", "-decode", "/decode")
+| extend Mode = iff(ProcessCommandLine has_any ("-encode", "/encode"), "encode", "decode")
+| project Timestamp, DeviceName, AccountName, Mode, ProcessCommandLine, FolderPath,
+          InitiatingProcessFileName, InitiatingProcessCommandLine
+| order by Timestamp desc

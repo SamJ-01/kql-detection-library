@@ -1,0 +1,41 @@
+// =============================================================================
+// Detection    : Remote process execution via WMIC / WMI
+// Hypothesis   : An attacker with valid credentials uses WMIC to start processes
+//                on another host (e.g. a file server or domain controller).
+// ATT&CK       : T1047 Windows Management Instrumentation
+//                Tactic: Execution, used here for Lateral Movement
+// Data source  : DeviceProcessEvents
+// Severity     : High
+// Scope        : Lab detection written against synthetic telemetry.
+// -----------------------------------------------------------------------------
+// The query looks at both ends of the movement:
+//   source side - wmic.exe launched with /node:<remote host> ... process call create
+//   target side - a shell or LOLBin spawned by WmiPrvSE.exe (the WMI provider host),
+//                 which is how a remotely created process appears on the target
+// -----------------------------------------------------------------------------
+// False positives : Management tools (SCCM/ConfigMgr, monitoring agents, some admin
+//                   scripts) spawn processes under WmiPrvSE.exe. Baseline them and
+//                   exclude by InitiatingProcessAccountName or command-line pattern.
+// Response        : Confirm whether the account normally administers the target.
+//                   If not, treat as lateral movement: scope every host the account
+//                   touched, reset its credentials and check for persistence.
+// Validation      : Not yet validated against live telemetry.
+// =============================================================================
+let lookback = 7d;
+let SuspiciousChildren = dynamic(["cmd.exe", "powershell.exe", "pwsh.exe", "rundll32.exe",
+                                  "regsvr32.exe", "mshta.exe", "certutil.exe", "bitsadmin.exe"]);
+let SourceSide = DeviceProcessEvents
+    | where Timestamp > ago(lookback)
+    | where FileName =~ "wmic.exe"
+    | where ProcessCommandLine has "/node:" and ProcessCommandLine has_all ("process", "call", "create")
+    | extend Side = "source",
+             RemoteHost = extract(@'/node:\s*"?([^\s"]+)', 1, ProcessCommandLine)
+    | project Timestamp, Side, DeviceName, RemoteHost, AccountName, ProcessCommandLine;
+let TargetSide = DeviceProcessEvents
+    | where Timestamp > ago(lookback)
+    | where InitiatingProcessFileName =~ "wmiprvse.exe"
+    | where FileName in~ (SuspiciousChildren)
+    | extend Side = "target", RemoteHost = DeviceName
+    | project Timestamp, Side, DeviceName, RemoteHost, AccountName, ProcessCommandLine;
+union SourceSide, TargetSide
+| order by Timestamp desc

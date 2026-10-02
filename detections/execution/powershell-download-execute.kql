@@ -1,0 +1,32 @@
+// =============================================================================
+// Detection    : PowerShell downloads a file and runs it in one command
+// Hypothesis   : An attacker (or a malicious document/macro) uses PowerShell to
+//                download a payload and execute it straight away.
+// ATT&CK       : T1059.001 Command and Scripting Interpreter: PowerShell
+//                T1105 Ingress Tool Transfer
+//                Tactic: Execution
+// Data source  : DeviceProcessEvents
+// Severity     : High
+// Scope        : Lab detection written against synthetic telemetry. The companion
+//                repo mde-detection-automation uses this logic as a custom
+//                detection with automatic device isolation.
+// -----------------------------------------------------------------------------
+// False positives : Some software installers and admin bootstrap scripts (e.g.
+//                   package-manager installs). Allow-list them by script path,
+//                   signer or account.
+// Response        : Retrieve the downloaded file and its hash, check the source URL,
+//                   look at the parent process (Office, browser, script host), and
+//                   isolate the device if the payload is unknown.
+// Validation      : Not yet validated against live telemetry.
+// =============================================================================
+let lookback = 7d;
+DeviceProcessEvents
+| where Timestamp > ago(lookback)
+| where FileName in~ ("powershell.exe", "pwsh.exe")
+| where ProcessCommandLine has_any ("Invoke-WebRequest", "iwr", "wget", "curl",
+                                    "DownloadFile", "DownloadString", "Net.WebClient", "Start-BitsTransfer")
+// ...and then runs something (or hides the command with -EncodedCommand)
+| where ProcessCommandLine has_any ("Start-Process", "Invoke-Expression", "iex", "-EncodedCommand", "-enc")
+| project Timestamp, DeviceName, AccountName, ProcessCommandLine,
+          InitiatingProcessFileName, InitiatingProcessCommandLine
+| order by Timestamp desc

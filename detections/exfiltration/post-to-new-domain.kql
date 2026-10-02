@@ -1,0 +1,60 @@
+// =============================================================================
+// Detection    : Scripting tools connecting to a newly observed external domain
+// Hypothesis   : An attacker sends staged data out with PowerShell (e.g.
+//                Invoke-WebRequest -Method Post) or another built-in tool, to a
+//                domain the organisation has never talked to before, often one
+//                named to look like a CDN or telemetry service.
+// ATT&CK       : T1041 Exfiltration Over C2 Channel
+//                (T1567 if the destination is a legitimate web service)
+//                Tactic: Exfiltration
+// Data source  : DeviceNetworkEvents
+// Severity     : Medium (High when combined with ../defense-evasion/certutil-encode-decode.kql
+//                or ../collection/compress-archive-sensitive-paths.kql on the same device)
+// Scope        : Lab detection written against synthetic telemetry.
+// -----------------------------------------------------------------------------
+// Limitation: Defender's DeviceNetworkEvents does not record HTTP methods or byte
+// counts, so "large POST" cannot be measured directly here. This query finds the
+// new destination and flags POST in the initiating command line; the proxy
+// alternative at the bottom measures size where web-proxy logs are available.
+// -----------------------------------------------------------------------------
+// False positives : New SaaS tools, software updaters and developer activity.
+//                   Restricting to scripting/LOLBin processes keeps volume low;
+//                   allow-list approved domains.
+// Response        : Look up the domain (age, registrar, reputation), check what the
+//                   process sent and what ran before it, and block the domain at
+//                   the proxy/firewall if it is not legitimate.
+// Validation      : Not yet validated against live telemetry.
+// =============================================================================
+let lookback = 1d;      // window to alert on
+let baseline = 30d;     // history used to decide what "new" means
+let ScriptingTools = dynamic(["powershell.exe", "pwsh.exe", "certutil.exe", "bitsadmin.exe",
+                              "curl.exe", "wget.exe", "mshta.exe", "rundll32.exe"]);
+let KnownDomains = DeviceNetworkEvents
+    | where Timestamp between (ago(baseline) .. ago(lookback))
+    | where isnotempty(RemoteUrl)
+    | distinct RemoteUrl;
+DeviceNetworkEvents
+| where Timestamp > ago(lookback)
+| where ActionType == "ConnectionSuccess" and RemoteIPType == "Public"
+| where isnotempty(RemoteUrl)
+| where InitiatingProcessFileName in~ (ScriptingTools)
+| where RemoteUrl !in (KnownDomains)
+| extend PostInCommandLine = InitiatingProcessCommandLine has "post"
+| summarize FirstSeen = min(Timestamp), Connections = count(), Devices = dcount(DeviceName),
+            AnyPost = max(toint(PostInCommandLine)),
+            CommandLines = make_set(InitiatingProcessCommandLine, 5)
+            by RemoteUrl, InitiatingProcessFileName, InitiatingProcessAccountName
+| order by AnyPost desc, FirstSeen desc
+
+// --- Alternative where web-proxy / firewall logs reach Sentinel ----------------
+// CommonSecurityLog (CEF) records the HTTP method and bytes sent, so "large POST"
+// can be measured directly.
+//
+// let threshold_mb = 10;
+// CommonSecurityLog
+// | where TimeGenerated > ago(1d)
+// | where RequestMethod == "POST"
+// | summarize SentMB = sum(SentBytes) / 1048576.0, Requests = count()
+//             by SourceIP, DestinationHostName
+// | where SentMB > threshold_mb
+// | order by SentMB desc

@@ -1,0 +1,40 @@
+// =============================================================================
+// Detection    : netsh portproxy rule created or changed
+// Hypothesis   : An attacker adds a netsh portproxy rule so traffic sent to one
+//                host is silently forwarded to another (e.g. 8443 on a workstation
+//                to 445 on a domain controller), giving a way back in that survives
+//                password resets.
+// ATT&CK       : T1090 Proxy (T1090.001 Internal Proxy)
+//                Tactic: Command and Control, used here to keep access (persistence)
+// Data source  : DeviceProcessEvents, DeviceRegistryEvents
+// Severity     : High
+// Scope        : Lab detection written against synthetic telemetry.
+// -----------------------------------------------------------------------------
+// Two views are combined because the rule can be created without netsh:
+//   process view  - netsh interface portproxy add/set ...
+//   registry view - the rules are stored under
+//                   HKLM\SYSTEM\CurrentControlSet\Services\PortProxy\v4tov4\tcp
+// -----------------------------------------------------------------------------
+// False positives : Rare on workstations. Some VPN, WSL or lab tooling sets port
+//                   proxies; document known hosts and exclude them by DeviceName.
+// Response        : List the active rules on the host (netsh interface portproxy
+//                   show all), remove unauthorised ones, block the listening port,
+//                   and hunt for connections to it.
+// Validation      : Not yet validated against live telemetry.
+// =============================================================================
+let lookback = 7d;
+let ProcessView = DeviceProcessEvents
+    | where Timestamp > ago(lookback)
+    | where FileName =~ "netsh.exe"
+    | where ProcessCommandLine has "portproxy" and ProcessCommandLine has_any ("add", "set")
+    | extend View = "process", Detail = ProcessCommandLine
+    | project Timestamp, View, DeviceName, AccountName, Detail;
+let RegistryView = DeviceRegistryEvents
+    | where Timestamp > ago(lookback)
+    | where RegistryKey has @"Services\PortProxy\v4tov4"
+    | where ActionType in ("RegistryValueSet", "RegistryKeyCreated")
+    | extend View = "registry",
+             Detail = strcat(RegistryKey, " | ", RegistryValueName, " -> ", RegistryValueData)
+    | project Timestamp, View, DeviceName, AccountName = InitiatingProcessAccountName, Detail;
+union ProcessView, RegistryView
+| order by Timestamp desc

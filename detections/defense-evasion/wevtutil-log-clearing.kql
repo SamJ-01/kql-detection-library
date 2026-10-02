@@ -1,0 +1,43 @@
+// =============================================================================
+// Detection    : Windows event log cleared (wevtutil / Clear-EventLog)
+// Hypothesis   : An attacker clears Windows event logs to remove evidence of
+//                their activity before leaving a host.
+// ATT&CK       : T1070.001 Indicator Removal: Clear Windows Event Logs
+//                Tactic: Defense Evasion
+// Data source  : DeviceProcessEvents (Defender for Endpoint / Defender XDR
+//                advanced hunting; also in Sentinel via the Defender XDR connector)
+// Severity     : High
+// Scope        : Lab detection written against synthetic telemetry. Not tuned
+//                for any production environment.
+// -----------------------------------------------------------------------------
+// False positives : Rare. Some imaging, decommissioning or log-rotation scripts.
+//                   Exclude known maintenance accounts or script paths rather than
+//                   raising thresholds: every hit deserves a look.
+// Response        : Treat as likely compromise. Check what ran on the host in the
+//                   hour before the clear (off-host telemetry such as Sysmon
+//                   forwarded to Log Analytics survives the clear), identify the
+//                   account used, and consider isolating the device.
+// Validation      : Identified the attacker's cleanup phase on the domain
+//                   controller during Operation Silent Corridor (lab).
+// =============================================================================
+let lookback = 7d;
+DeviceProcessEvents
+| where Timestamp > ago(lookback)
+| where
+    // wevtutil cl <log> / wevtutil clear-log <log>
+    (FileName =~ "wevtutil.exe" and ProcessCommandLine matches regex @"(?i)\s(cl|clear-log)\s")
+    // PowerShell equivalents
+    or (FileName in~ ("powershell.exe", "pwsh.exe")
+        and ProcessCommandLine has_any ("Clear-EventLog", "Remove-EventLog", "ClearLog"))
+| project Timestamp, DeviceName, AccountDomain, AccountName, FileName,
+          ProcessCommandLine, InitiatingProcessFileName, InitiatingProcessCommandLine
+| order by Timestamp desc
+
+// --- Alternative for Sentinel workspaces with Windows Security Events ---------
+// Event ID 1102 is written to the Security log itself when it is cleared, so it
+// catches clears done by any tool, not just wevtutil.
+//
+// SecurityEvent
+// | where TimeGenerated > ago(7d)
+// | where EventID == 1102
+// | project TimeGenerated, Computer, SubjectDomainName, SubjectUserName, Activity
