@@ -1,0 +1,41 @@
+// =============================================================================
+// Detection    : PowerShell Compress-Archive used on sensitive paths
+// Hypothesis   : An attacker gathers files from sensitive locations into a single
+//                archive ready to be sent out, often with an innocent-looking name.
+// ATT&CK       : T1560 Archive Collected Data
+//                Tactic: Collection
+// Data source  : DeviceProcessEvents, DeviceFileEvents
+// Severity     : Medium (High if the archive is later sent out)
+// Scope        : Lab detection written against synthetic telemetry. The path list
+//                below is an example: replace it with your own sensitive locations.
+// -----------------------------------------------------------------------------
+// Limitation: Compress-Archive typed inside an interactive PowerShell session does
+// not appear in ProcessCommandLine. The file view catches the .zip being written
+// by PowerShell regardless. PowerShell Script Block Logging (Event ID 4104) gives
+// full visibility where it is enabled.
+// -----------------------------------------------------------------------------
+// False positives : Backup and housekeeping scripts. Exclude by account and by
+//                   known destination folders.
+// Response        : Identify the archive, its size and destination folder, check for
+//                   outbound transfers from the same device, and confirm with the
+//                   data owner whether the activity was expected.
+// Validation      : Not yet validated against live telemetry.
+// =============================================================================
+let lookback = 7d;
+let SensitivePaths = dynamic([@"\Engineering\", @"\Finance\", @"\HR\", @"\Legal\", "ntds.dit"]);
+let ProcessView = DeviceProcessEvents
+    | where Timestamp > ago(lookback)
+    | where FileName in~ ("powershell.exe", "pwsh.exe")
+    | where ProcessCommandLine has "Compress-Archive"
+    | extend View = "process", TouchesSensitivePath = ProcessCommandLine has_any (SensitivePaths)
+    | project Timestamp, View, DeviceName, AccountName, TouchesSensitivePath,
+              Detail = ProcessCommandLine;
+let FileView = DeviceFileEvents
+    | where Timestamp > ago(lookback)
+    | where ActionType == "FileCreated" and FileName endswith ".zip"
+    | where InitiatingProcessFileName in~ ("powershell.exe", "pwsh.exe")
+    | extend View = "file", TouchesSensitivePath = InitiatingProcessCommandLine has_any (SensitivePaths)
+    | project Timestamp, View, DeviceName, AccountName = InitiatingProcessAccountName,
+              TouchesSensitivePath, Detail = FolderPath;
+union ProcessView, FileView
+| order by TouchesSensitivePath desc, Timestamp desc
