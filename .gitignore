@@ -1,0 +1,11 @@
+# Editors and OS files
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Exported query results: may contain real data, never commit them
+*.csv
+results/
+exports/
