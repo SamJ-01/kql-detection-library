@@ -10,6 +10,12 @@ without an FP analysis is a hypothesis, not a detection.
 > tuned for a specific production environment. Thresholds, path lists and
 > allow-lists are starting points to adapt.
 
+**Looking for detections tested end to end?** The six rules in my
+[Haldane SOC Lab](https://github.com/SamJ-01/haldane-soc-lab/tree/main/detections)
+were baselined on 30 days of data, deployed to Sentinel as code, fired by
+controlled tests and tuned from the results (write-up:
+[detection engineering](https://github.com/SamJ-01/haldane-soc-lab/blob/main/docs/04-detection-engineering.md)).
+
 ## Detections
 
 | Tactic | Detection | ATT&CK | Table(s) | Severity |
