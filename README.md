@@ -1,5 +1,7 @@
 # KQL Detection Library
 
+![KQL Detection Library: nine detection queries organised by MITRE ATT&CK tactic](docs/social-preview.png)
+
 Detection queries for Microsoft Sentinel / Defender for Endpoint, organised by
 MITRE ATT&CK tactic. Every query is documented to a production standard: detection
 logic, data source, false-positive profile, and tuning guidance — because a query
